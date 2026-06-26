@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScreenShare — Session</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <!-- Ghost cursor (shown when remote side is pointing at local content) -->
+  <div id="cursor-overlay">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+      <path d="M4 2l16 10-7 1-4 7L4 2z" fill="#4f8ef7" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>
+  </div>
+
+  <div class="viewer-layout">
+
+    <!-- Top bar -->
+    <div class="viewer-topbar">
+      <span class="logo">ScreenShare</span>
+      <span id="status-pill" class="status connecting">
+        <span class="status-dot"></span>
+        <span id="status-text">Waiting…</span>
+      </span>
+      <div class="topbar-right">
+        <div id="link-box" class="room-code" style="max-width:320px;">
+          <span style="color:var(--muted);font-size:0.8rem;flex-shrink:0">Share:</span>
+          <a id="room-link" href="#" target="_blank" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></a>
+          <button class="btn btn-secondary" id="btn-copy" style="padding:6px 12px;font-size:0.8rem;flex-shrink:0">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Video viewport -->
+    <div class="viewer-body" id="viewer-body">
+      <!-- Status overlay -->
+      <div class="status-overlay" id="status-overlay">
+        <div class="share-icon">📺</div>
+        <h2 id="overlay-title">Waiting for someone to join</h2>
+        <p id="overlay-sub">Share this link to start the session:</p>
+        <div class="room-code" id="overlay-link-box" style="max-width:400px;">
+          <a id="room-link-big" href="#" style="word-break:break-all"></a>
+        </div>
+        <p class="text-muted" id="overlay-code-line" style="margin-top:4px;">
+          Room code: <strong id="room-code-text" style="color:var(--text)"></strong>
+        </p>
+      </div>
+
+      <!-- Remote stream -->
+      <video id="remote-video" autoplay playsinline style="display:none"></video>
+
+      <!-- Local screen share preview (PIP) -->
+      <div class="local-pip hidden" id="local-pip">
+        <video id="local-video" autoplay muted playsinline></video>
+        <span class="pip-label">You</span>
+      </div>
+    </div>
+
+    <!-- Control bar -->
+    <div class="control-bar">
+      <button class="ctrl-btn" id="btn-mic" title="Mute / Unmute">
+        <svg id="icon-mic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+        </svg>
+        <svg id="icon-mic-off" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <line x1="1" y1="1" x2="23" y2="23"/>
+          <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23M12 19v4M8 23h8"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn" id="btn-share" title="Share / Stop sharing your screen">
+        <svg id="icon-share" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <path d="M8 21h8M12 17v4"/>
+          <polyline points="8 10 12 6 16 10"/><line x1="12" y1="6" x2="12" y2="14"/>
+        </svg>
+        <svg id="icon-share-stop" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <path d="M8 21h8M12 17v4"/>
+          <line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn" id="btn-chat" title="Chat">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <!-- badge injected by Chat -->
+      </button>
+
+      <button class="ctrl-btn hidden" id="btn-fit" title="Reset zoom (double-tap)">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn" id="btn-fullscreen" title="Fullscreen">
+        <svg id="icon-fs-enter" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+        </svg>
+        <svg id="icon-fs-exit" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn ctrl-btn-end" id="btn-end" title="Leave session">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.42 19.42 0 0 1 4.26 9.9 19.79 19.79 0 0 1 1.19 1.27 2 2 0 0 1 3.16 0h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.24 7.91"/>
+          <line x1="23" y1="1" x2="1" y2="23"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { Signaling }  from '/js/signaling.js';
+    import { WebRTCPeer } from '/js/webrtc.js';
+    import { Capture }    from '/js/capture.js';
+    import { Cursor }     from '/js/cursor.js';
+    import { Viewer }     from '/js/viewer.js';
+    import { Adaptive }   from '/js/adaptive.js';
+    import { Chat }       from '/js/chat.js';
+
+    const { iceServers } = await fetch('/api/config').then(r => r.json());
+    const roomId  = location.pathname.slice(1);
+    const roomUrl = `${location.origin}/${roomId}`;
+
+    // ── DOM refs ──────────────────────────────────────────────────────────────
+    const remoteVideo    = document.getElementById('remote-video');
+    const localVideo     = document.getElementById('local-video');
+    const localPip       = document.getElementById('local-pip');
+    const statusOverlay  = document.getElementById('status-overlay');
+    const overlayTitle   = document.getElementById('overlay-title');
+    const overlaySub     = document.getElementById('overlay-sub');
+    const overlayLinkBox = document.getElementById('overlay-link-box');
+    const overlayCodeLine= document.getElementById('overlay-code-line');
+    const statusPill     = document.getElementById('status-pill');
+    const statusText     = document.getElementById('status-text');
+    const btnMic         = document.getElementById('btn-mic');
+    const btnShare       = document.getElementById('btn-share');
+    const btnChat        = document.getElementById('btn-chat');
+    const btnFit         = document.getElementById('btn-fit');
+    const btnFullscreen  = document.getElementById('btn-fullscreen');
+    const btnEnd         = document.getElementById('btn-end');
+    const btnCopy        = document.getElementById('btn-copy');
+
+    // ── Room link ─────────────────────────────────────────────────────────────
+    document.getElementById('room-link').href        = roomUrl;
+    document.getElementById('room-link').textContent  = roomUrl;
+    document.getElementById('room-link-big').href    = roomUrl;
+    document.getElementById('room-link-big').textContent = roomUrl;
+    document.getElementById('room-code-text').textContent = roomId;
+
+    btnCopy.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(roomUrl);
+      btnCopy.textContent = 'Copied!';
+      setTimeout(() => { btnCopy.textContent = 'Copy'; }, 2000);
+    });
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    let isMicMuted    = false;
+    let isSharing     = false;
+    let remoteSharing = false;
+    let peerConnected = false;
+
+    // ── Modules ───────────────────────────────────────────────────────────────
+    const capture   = new Capture();
+    const signaling = new Signaling(roomId);
+    const peer      = new WebRTCPeer(signaling, iceServers);
+    const cursor    = new Cursor(document.getElementById('cursor-overlay'));
+    const viewer    = new Viewer(remoteVideo, peer);
+    const adaptive  = new Adaptive(peer);
+    const chat      = new Chat();
+
+    btnChat.appendChild(chat.badge);
+
+    // Request mic early so the permission prompt fires immediately
+    const micPromise = capture.startMic();
+
+    // ── UI helpers ────────────────────────────────────────────────────────────
+    function setStatus(state, text) {
+      statusPill.className  = `status ${state}`;
+      statusText.textContent = text;
+    }
+
+    function updateOverlay() {
+      remoteVideo.style.display = remoteSharing ? 'block' : 'none';
+      statusOverlay.classList.toggle('hidden', remoteSharing);
+
+      const showLink = !peerConnected;
+      overlayLinkBox.classList.toggle('hidden', !showLink);
+      overlayCodeLine.classList.toggle('hidden', !showLink);
+
+      if (!peerConnected) {
+        overlayTitle.textContent = 'Waiting for someone to join';
+        overlaySub.textContent   = 'Share this link to start the session:';
+      } else if (isSharing && !remoteSharing) {
+        overlayTitle.textContent = 'You are sharing your screen';
+        overlaySub.textContent   = 'The other person can see your screen.';
+      } else if (!remoteSharing) {
+        overlayTitle.textContent = 'Connected';
+        overlaySub.textContent   = 'Use the Share button to show your screen.';
+      }
+    }
+
+    updateOverlay();
+
+    // ── Signaling events ──────────────────────────────────────────────────────
+    signaling.onPeerJoined = async ({ initiateOffer }) => {
+      peerConnected = true;
+      setStatus('connecting', 'Connecting…');
+      updateOverlay();
+
+      if (initiateOffer) {
+        // We were here first — set up transceivers and send the offer
+        peer.setupTransceivers();
+        await peer.createOffer();
+      }
+      // Otherwise we wait for the offer from the other side
+    };
+
+    signaling.onPeerLeft = () => {
+      peerConnected = false;
+      remoteSharing = false;
+      remoteVideo.srcObject = null;
+      setStatus('disconnected', 'Other person left');
+      updateOverlay();
+      adaptive.stop();
+      screen.orientation?.unlock?.();
+    };
+
+    signaling.onMessage((msg) => {
+      if (msg.type === 'cursor') cursor.update(msg.x, msg.y);
+      if (msg.type === 'click')  cursor.showClick(msg.x, msg.y);
+      if (msg.type === 'share-start') {
+        remoteSharing = true;
+        updateOverlay();
+        screen.orientation?.lock?.('landscape').catch(() => {});
+      }
+      if (msg.type === 'share-stop') {
+        remoteSharing = false;
+        remoteVideo.srcObject = null;
+        updateOverlay();
+        screen.orientation?.unlock?.();
+      }
+      if (msg.type === 'chat') {
+        chat.addMessage(msg.text, false);
+      }
+    });
+
+    // ── Peer events ───────────────────────────────────────────────────────────
+    peer.onTrack = (stream) => {
+      remoteVideo.srcObject = stream;
+      setStatus('connected', 'Connected');
+      adaptive.start();
+    };
+
+    peer.onConnectionStateChange = async (state) => {
+      if (state === 'connected') {
+        peerConnected = true;
+        setStatus('connected', 'Connected');
+        updateOverlay();
+        // Add mic now that the connection is established
+        const micTrack = await micPromise;
+        if (micTrack) await peer.replaceAudioTrack(micTrack);
+      } else if (state === 'failed' || state === 'disconnected') {
+        setStatus('disconnected', 'Connection lost');
+        screen.orientation?.unlock?.();
+      }
+    };
+
+    // ── Viewer (pinch-zoom + cursor sending when viewing remote) ──────────────
+    viewer.startCursorTracking(document.getElementById('viewer-body'));
+    viewer.onZoomChange = (zoom) => btnFit.classList.toggle('hidden', zoom <= 1);
+
+    // ── Control bar ───────────────────────────────────────────────────────────
+
+    btnMic.addEventListener('click', () => {
+      isMicMuted = !isMicMuted;
+      capture.setMicEnabled(!isMicMuted);
+      btnMic.classList.toggle('muted', isMicMuted);
+      document.getElementById('icon-mic').style.display     = isMicMuted ? 'none'  : 'block';
+      document.getElementById('icon-mic-off').style.display = isMicMuted ? 'block' : 'none';
+    });
+
+    btnShare.addEventListener('click', async () => {
+      if (isSharing) await stopSharing(); else await startSharing();
+    });
+
+    async function startSharing() {
+      btnShare.disabled = true;
+      try {
+        const track = await capture.startScreen();
+        await peer.replaceVideoTrack(track);
+        localVideo.srcObject = capture.screenStream;
+        localPip.classList.remove('hidden');
+        isSharing = true;
+        btnShare.classList.add('active');
+        document.getElementById('icon-share').style.display      = 'none';
+        document.getElementById('icon-share-stop').style.display = 'block';
+        signaling.send({ type: 'share-start' });
+        updateOverlay();
+        track.addEventListener('ended', stopSharing);
+      } catch {
+        // Cancelled or permission denied
+      } finally {
+        btnShare.disabled = false;
+      }
+    }
+
+    async function stopSharing() {
+      await peer.replaceVideoTrack(null);
+      capture.stopScreen();
+      localPip.classList.add('hidden');
+      localVideo.srcObject = null;
+      isSharing = false;
+      btnShare.classList.remove('active');
+      document.getElementById('icon-share').style.display      = 'block';
+      document.getElementById('icon-share-stop').style.display = 'none';
+      signaling.send({ type: 'share-stop' });
+      updateOverlay();
+    }
+
+    btnChat.addEventListener('click', () => {
+      chat.toggle();
+      btnChat.classList.toggle('active', chat.isOpen);
+    });
+
+    chat.onSend = (text) => {
+      signaling.send({ type: 'chat', text });
+      chat.addMessage(text, true);
+    };
+
+    btnFit.addEventListener('click', () => viewer.resetZoom());
+
+    btnFullscreen.addEventListener('click', () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+    });
+
+    document.addEventListener('fullscreenchange', () => {
+      const inFs = !!document.fullscreenElement;
+      document.getElementById('icon-fs-enter').style.display = inFs ? 'none'  : 'block';
+      document.getElementById('icon-fs-exit').style.display  = inFs ? 'block' : 'none';
+    });
+
+    btnEnd.addEventListener('click', async () => {
+      if (isSharing) await stopSharing();
+      capture.stopAll();
+      screen.orientation?.unlock?.();
+      signaling.close();
+      window.location.href = '/';
+    });
+
+    window.addEventListener('beforeunload', () => {
+      signaling.close();
+      capture.stopAll();
+    });
+  </script>
+</body>
+</html>

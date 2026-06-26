@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScreenShare</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="center">
+    <div class="card">
+      <div class="logo">ScreenShare</div>
+      <h1>Remote screen help,<br>no install required.</h1>
+      <p class="mt-8">Start a session or join one using a room code.</p>
+
+      <!-- Main actions -->
+      <div class="btn-row" id="main-actions">
+        <button class="btn btn-primary btn-lg" id="btn-create">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+          </svg>
+          Create Room
+        </button>
+
+        <div class="divider">or</div>
+
+        <button class="btn btn-secondary btn-lg" id="btn-join-show">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h6v6M10 14L21 3M9 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>
+          </svg>
+          Join Room
+        </button>
+      </div>
+
+      <!-- Join form (hidden until Join is clicked) -->
+      <div id="join-form" class="hidden mt-16">
+        <label class="text-muted" style="display:block;margin-bottom:8px;">Enter the 3-word room code:</label>
+        <input type="text" id="join-input" placeholder="e.g. AlphaAvianArmy" autocomplete="off" spellcheck="false">
+        <div style="display:flex;gap:10px;margin-top:12px;">
+          <button class="btn btn-primary" id="btn-join" style="flex:1">Join</button>
+          <button class="btn btn-secondary" id="btn-join-cancel">Cancel</button>
+        </div>
+        <p class="text-muted mt-8" id="join-error" style="color:var(--danger);display:none;"></p>
+      </div>
+
+      <!-- Creating spinner -->
+      <div id="creating-state" class="hidden mt-24 text-center">
+        <p class="text-muted">Creating room…</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const btnCreate    = document.getElementById('btn-create');
+    const btnJoinShow  = document.getElementById('btn-join-show');
+    const btnJoin      = document.getElementById('btn-join');
+    const btnJoinCancel= document.getElementById('btn-join-cancel');
+    const mainActions  = document.getElementById('main-actions');
+    const joinForm     = document.getElementById('join-form');
+    const joinInput    = document.getElementById('join-input');
+    const joinError    = document.getElementById('join-error');
+    const creatingState= document.getElementById('creating-state');
+
+    btnCreate.addEventListener('click', async () => {
+      btnCreate.disabled = true;
+      mainActions.classList.add('hidden');
+      creatingState.classList.remove('hidden');
+      try {
+        const res  = await fetch('/api/rooms', { method: 'POST' });
+        const { roomId } = await res.json();
+        window.location.href = `/${roomId}`;
+      } catch {
+        btnCreate.disabled = false;
+        mainActions.classList.remove('hidden');
+        creatingState.classList.add('hidden');
+      }
+    });
+
+    btnJoinShow.addEventListener('click', () => {
+      mainActions.classList.add('hidden');
+      joinForm.classList.remove('hidden');
+      joinInput.focus();
+    });
+
+    btnJoinCancel.addEventListener('click', () => {
+      joinForm.classList.add('hidden');
+      mainActions.classList.remove('hidden');
+      joinInput.value = '';
+      joinError.style.display = 'none';
+    });
+
+    function doJoin() {
+      const raw  = joinInput.value.trim();
+      const code = raw.replace(/\s+/g, '');
+      if (!code) { showError('Please enter a room code.'); return; }
+      window.location.href = `/${code}`;
+    }
+
+    btnJoin.addEventListener('click', doJoin);
+    joinInput.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin(); });
+
+    function showError(msg) {
+      joinError.textContent = msg;
+      joinError.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

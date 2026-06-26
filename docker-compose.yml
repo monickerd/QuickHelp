@@ -1,0 +1,19 @@
+services:
+  screenshare:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8383:8383"
+    environment:
+      - PORT=8383
+      # Public URL used to generate shareable room links.
+      - BASE_URL=${BASE_URL:-http://localhost:8383}
+      # ── TURN server (recommended for clients behind strict NAT) ──────────
+      # TURN_URLS: comma-separated list of TURN/TURNS endpoints.
+      # For coturn, typically both a plain and a TLS endpoint:
+      #   TURN_URLS=turn:turn.example.com:3478,turns:turn.example.com:5349
+      - TURN_URLS=${TURN_URLS:-}
+      # Static credentials configured in coturn (use_auth_secret mode is also
+      # fine — generate short-lived credentials server-side if desired).
+      - TURN_USERNAME=${TURN_USERNAME:-}
+      - TURN_CREDENTIAL=${TURN_CREDENTIAL:-}
