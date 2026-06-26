@@ -9,6 +9,6 @@ COPY server/ ./server/
 COPY public/ ./public/
 COPY wordlist.txt ./
 
-EXPOSE 3000
+EXPOSE 8383
 
 CMD ["node", "server/index.js"]

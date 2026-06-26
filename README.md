@@ -16,7 +16,7 @@ Rooms are ephemeral — they're created on demand and deleted when both particip
 
 ```bash
 npm install
-npm run dev       # starts on http://localhost:3000 with --watch
+npm run dev       # starts on http://localhost:8383 with --watch
 ```
 
 ## Running with Docker
@@ -45,7 +45,7 @@ WebRTC works peer-to-peer, but clients behind strict NAT or firewalls may need a
 
 | Variable | Default | Description |
 |---|---|---|
-| `PORT` | `3000` | HTTP listen port |
+| `PORT` | `8383` | HTTP listen port |
 | `BASE_URL` | `http://localhost:{PORT}` | Public base URL for room links |
 | `TURN_URLS` | — | TURN server endpoints |
 | `TURN_USERNAME` | — | TURN username |

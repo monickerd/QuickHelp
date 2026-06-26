@@ -4,7 +4,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const { createRoom, getRoom, deleteRoom, claimSlot, setPeer, getOtherPeer, isRoomEmpty } = require('./session');
 
-const PORT   = process.env.PORT || 3000;
+const PORT   = process.env.PORT || 8383;
 const PUBLIC = path.join(__dirname, '..', 'public');
 
 // ── Static file server ──────────────────────────────────────────────────────
