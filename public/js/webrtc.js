@@ -10,6 +10,7 @@ export class WebRTCPeer {
 
     this.onTrack                 = null;
     this.onConnectionStateChange = null;
+    this.onRemoteAudioUnmuted    = null;
 
     this._pc               = new RTCPeerConnection({ iceServers });
     this._videoTransceiver = null;
@@ -120,6 +121,12 @@ export class WebRTCPeer {
 
     this._pc.addEventListener('track', ({ track }) => {
       this._remoteStream.addTrack(track);
+      if (track.kind === 'audio') {
+        // 'unmute' fires when data starts flowing on the receiver — i.e. when the
+        // remote peer calls replaceTrack() with a real mic. Retry play() then so
+        // the audio element isn't left stalled on Firefox/Android.
+        track.addEventListener('unmute', () => this.onRemoteAudioUnmuted?.());
+      }
       // Fire for every track so Firefox re-evaluates srcObject when audio arrives
       this.onTrack?.(this._remoteStream);
     });

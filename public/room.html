@@ -356,6 +356,10 @@
       adaptive.start();
     };
 
+    peer.onRemoteAudioUnmuted = () => {
+      remoteAudio.play().catch(() => {});
+    };
+
     peer.onConnectionStateChange = async (state) => {
       recovery.handleConnectionState(state);
       if (state === 'connected') {
