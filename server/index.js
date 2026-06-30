@@ -2,7 +2,7 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { createRoom, getRoom, deleteRoom, scheduleDelete, claimSlot, setPeer, clearPeer, getOtherPeer, bothPresent, isRoomEmpty, allowRestart } = require('./session');
+const { createRoom, getRoom, deleteRoom, scheduleDelete, resolveRoomId, claimSlot, setPeer, clearPeer, getOtherPeer, bothPresent, isRoomEmpty, allowRestart } = require('./session');
 
 const PORT    = process.env.PORT || 8383;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
@@ -58,23 +58,21 @@ function parseTurnUrls(raw) {
 }
 
 function buildIceServers() {
-  const servers = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ];
-
   const username   = process.env.TURN_USERNAME   || undefined;
   const credential = process.env.TURN_CREDENTIAL || undefined;
-  const turnUrls   = parseTurnUrls(process.env.TURN_URLS);
 
-  for (const url of turnUrls) {
+  const turn = parseTurnUrls(process.env.TURN_URLS).map(url => {
     const entry = { urls: url };
     if (username)   entry.username   = username;
     if (credential) entry.credential = credential;
-    servers.push(entry);
-  }
+    return entry;
+  });
 
-  return servers;
+  const stunUrls = parseTurnUrls(process.env.STUN_URLS);
+  const stun = (stunUrls.length ? stunUrls : ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'])
+    .map(urls => ({ urls }));
+
+  return [...turn, ...stun];
 }
 
 // ── HTTP ────────────────────────────────────────────────────────────────────
@@ -111,7 +109,7 @@ const server = http.createServer((req, res) => {
   // /<roomId> — both participants use the same page
   const roomMatch = pathname.match(/^\/([A-Za-z]+)$/);
   if (roomMatch) {
-    const room = getRoom(roomMatch[1].toLowerCase());
+    const room = getRoom(roomMatch[1]);
     if (!room) { res.writeHead(404); res.end('Room not found or expired'); return; }
     serveHtml(res, 'room.html');
     return;
@@ -151,7 +149,7 @@ function notifyBothPresent(roomId) {
 
 wss.on('connection', (ws, req) => {
   const url      = new URL(req.url, 'http://localhost');
-  const roomId   = (url.searchParams.get('room') || '').toLowerCase() || null;
+  const roomId   = resolveRoomId(url.searchParams.get('room') || '');
   const clientId = url.searchParams.get('id') || null;
   const ip       = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
 

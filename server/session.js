@@ -6,7 +6,8 @@ const { generateRoomId } = require('./wordlist');
 //   createdAt:  number,
 //   lastRestartAt: number,                        // debounce for server-coordinated restarts
 // }>
-const rooms = new Map();
+const rooms      = new Map(); // canonical (PascalCase) → room
+const lowerIndex = new Map(); // lowercase              → canonical
 
 const ROOM_TTL_MS        = 4 * 60 * 60 * 1000;
 const ROOM_GRACE_MS      = 30 * 1000;
@@ -23,11 +24,25 @@ function createRoom() {
     lastRestartAt: 0,
     deleteTimer:  null,
   });
+  lowerIndex.set(id.toLowerCase(), id);
   return id;
 }
 
-function getRoom(id) { return rooms.get(id) || null; }
-function deleteRoom(id) { rooms.delete(id); }
+// Returns the canonical (PascalCase) room ID for any casing, or null if not found.
+function resolveRoomId(id) {
+  if (rooms.has(id)) return id;
+  return lowerIndex.get(id.toLowerCase()) ?? null;
+}
+
+function getRoom(id) {
+  const canonical = resolveRoomId(id);
+  return canonical ? rooms.get(canonical) : null;
+}
+
+function deleteRoom(id) {
+  lowerIndex.delete(id.toLowerCase());
+  rooms.delete(id);
+}
 
 // Decide which slot a connecting socket should occupy.
 // Returns { slot, evict } where:
@@ -114,14 +129,17 @@ function allowRestart(id) {
 function purgeStaleRooms() {
   const cutoff = Date.now() - ROOM_TTL_MS;
   for (const [id, room] of rooms) {
-    if (room.createdAt < cutoff) rooms.delete(id);
+    if (room.createdAt < cutoff) {
+      lowerIndex.delete(id.toLowerCase());
+      rooms.delete(id);
+    }
   }
 }
 
 setInterval(purgeStaleRooms, 30 * 60 * 1000);
 
 module.exports = {
-  createRoom, getRoom, deleteRoom, scheduleDelete,
+  createRoom, getRoom, deleteRoom, scheduleDelete, resolveRoomId,
   claimSlot, setPeer, clearPeer, getOtherPeer,
   bothPresent, isRoomEmpty, allowRestart,
 };
