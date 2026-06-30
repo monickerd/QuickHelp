@@ -6,11 +6,11 @@ Built with Node.js, WebRTC, and WebSockets. Zero runtime dependencies beyond `ws
 
 ## How it works
 
-1. The helper opens the app and clicks **Start a session** to generate a room link.
-2. They send the link to the person who needs help.
-3. The person clicks the link, grants screen-share permission, and the helper sees their screen live.
+1. One person clicks **Create Room** to generate a session link and room code.
+2. They share the link (or code) with the other person, who joins via the link or clicks **Join Room** and enters the code.
+3. Once both are connected, either person can share their screen, toggle their microphone, or open the chat.
 
-Rooms are ephemeral — they're created on demand and deleted when both participants disconnect.
+Rooms are ephemeral — created on demand and deleted when both participants disconnect.
 
 ## Running locally
 
@@ -35,11 +35,20 @@ BASE_URL=https://share.example.com docker compose up -d
 
 WebRTC works peer-to-peer, but clients behind strict NAT or firewalls may need a TURN relay. Configure one via environment variables:
 
+**coturn `use_auth_secret` mode (recommended):**
+
 | Variable | Description |
 |---|---|
-| `TURN_URLS` | Comma-separated list of TURN/TURNS endpoints |
-| `TURN_USERNAME` | TURN credential username |
-| `TURN_CREDENTIAL` | TURN credential password |
+| `TURN_URLS` | Comma-separated TURN/TURNS endpoints |
+| `TURN_SECRET` | Shared secret — the server generates short-lived HMAC credentials automatically |
+
+**Static credentials:**
+
+| Variable | Description |
+|---|---|
+| `TURN_URLS` | Comma-separated TURN/TURNS endpoints |
+| `TURN_USERNAME` | TURN username |
+| `TURN_CREDENTIAL` | TURN password |
 
 ## Environment variables
 
@@ -47,6 +56,7 @@ WebRTC works peer-to-peer, but clients behind strict NAT or firewalls may need a
 |---|---|---|
 | `PORT` | `8383` | HTTP listen port |
 | `BASE_URL` | `http://localhost:{PORT}` | Public base URL for room links |
-| `TURN_URLS` | — | TURN server endpoints |
-| `TURN_USERNAME` | — | TURN username |
-| `TURN_CREDENTIAL` | — | TURN password |
+| `TURN_URLS` | — | TURN/TURNS server endpoints |
+| `TURN_SECRET` | — | coturn shared secret (HMAC credential mode) |
+| `TURN_USERNAME` | — | TURN username (static credential mode) |
+| `TURN_CREDENTIAL` | — | TURN password (static credential mode) |
