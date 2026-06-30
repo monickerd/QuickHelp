@@ -11,7 +11,8 @@ export class Capture {
     try {
       const stream   = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       this._micTrack = stream.getAudioTracks()[0] ?? null;
-    } catch {
+    } catch (e) {
+      console.warn('[Mic] getUserMedia failed:', e.name, e.message);
       this._micTrack = null;
     }
     return this._micTrack;
