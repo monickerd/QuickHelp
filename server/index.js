@@ -4,8 +4,16 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const { createRoom, getRoom, deleteRoom, scheduleDelete, claimSlot, setPeer, clearPeer, getOtherPeer, bothPresent, isRoomEmpty, allowRestart } = require('./session');
 
-const PORT   = process.env.PORT || 8383;
-const PUBLIC = path.join(__dirname, '..', 'public');
+const PORT    = process.env.PORT || 8383;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const PUBLIC  = path.join(__dirname, '..', 'public');
+
+function log(tag, msg, extra) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] [${tag}] ${msg}`;
+  if (extra !== undefined) console.log(line, JSON.stringify(extra));
+  else console.log(line);
+}
 
 // ── Static file server ──────────────────────────────────────────────────────
 
@@ -33,23 +41,37 @@ function serveHtml(res, name) {
 
 // ── ICE / TURN config ───────────────────────────────────────────────────────
 
+function parseTurnUrls(raw) {
+  if (!raw) return [];
+  const trimmed = raw.trim();
+  // Accept JSON array format: ["turn:...", "turns:..."]
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(s => String(s).trim()).filter(Boolean);
+    } catch (e) {
+      log('WARN', 'TURN_URLS looks like JSON but failed to parse, falling back to comma-split', { raw, error: e.message });
+    }
+  }
+  // Fallback: comma-separated plain list
+  return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+}
+
 function buildIceServers() {
   const servers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ];
 
-  const turnUrls   = process.env.TURN_URLS;
   const username   = process.env.TURN_USERNAME   || undefined;
   const credential = process.env.TURN_CREDENTIAL || undefined;
+  const turnUrls   = parseTurnUrls(process.env.TURN_URLS);
 
-  if (turnUrls) {
-    for (const url of turnUrls.split(',').map(s => s.trim()).filter(Boolean)) {
-      const entry = { urls: url };
-      if (username)   entry.username   = username;
-      if (credential) entry.credential = credential;
-      servers.push(entry);
-    }
+  for (const url of turnUrls) {
+    const entry = { urls: url };
+    if (username)   entry.username   = username;
+    if (credential) entry.credential = credential;
+    servers.push(entry);
   }
 
   return servers;
@@ -63,14 +85,17 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'POST' && pathname === '/api/rooms') {
     const id = createRoom();
+    log('ROOM', `Created room ${id}`);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ roomId: id }));
     return;
   }
 
   if (req.method === 'GET' && pathname === '/api/config') {
+    const iceServers = buildIceServers();
+    log('ICE', `Serving ICE config (${iceServers.length} servers)`, iceServers.map(s => s.urls));
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ iceServers: buildIceServers() }));
+    res.end(JSON.stringify({ iceServers }));
     return;
   }
 
@@ -86,7 +111,7 @@ const server = http.createServer((req, res) => {
   // /<roomId> — both participants use the same page
   const roomMatch = pathname.match(/^\/([A-Za-z]+)$/);
   if (roomMatch) {
-    const room = getRoom(roomMatch[1]);
+    const room = getRoom(roomMatch[1].toLowerCase());
     if (!room) { res.writeHead(404); res.end('Room not found or expired'); return; }
     serveHtml(res, 'room.html');
     return;
@@ -126,45 +151,87 @@ function notifyBothPresent(roomId) {
 
 wss.on('connection', (ws, req) => {
   const url      = new URL(req.url, 'http://localhost');
-  const roomId   = url.searchParams.get('room');
+  const roomId   = (url.searchParams.get('room') || '').toLowerCase() || null;
   const clientId = url.searchParams.get('id') || null;
-  if (!roomId) { ws.close(1008, 'Missing room'); return; }
+  const ip       = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
+
+  if (!roomId) {
+    log('WS', `Rejected connection from ${ip}: missing room`);
+    ws.close(1008, 'Missing room');
+    return;
+  }
 
   const room = getRoom(roomId);
-  if (!room) { ws.close(1008, 'Room not found'); return; }
+  if (!room) {
+    log('WS', `Rejected connection from ${ip}: room "${roomId}" not found`);
+    ws.close(1008, 'Room not found');
+    return;
+  }
 
   const { slot, evict } = claimSlot(roomId, clientId);
-  if (slot === -1) { ws.close(1008, 'Room is full'); return; }
+  if (slot === -1) {
+    log('WS', `Rejected connection from ${ip}: room "${roomId}" is full`);
+    ws.close(1008, 'Room is full');
+    return;
+  }
 
   // Install the new socket first, then evict any predecessor. clearPeer() is
   // guarded so the evicted socket's close handler won't wipe this new slot.
   setPeer(roomId, slot, ws, clientId);
-  if (evict && evict !== ws) evict.close(1012, 'Replaced by reconnect');
+  if (evict && evict !== ws) {
+    log('WS', `Evicting old slot ${slot} in room "${roomId}" (reconnect)`);
+    evict.close(1012, 'Replaced by reconnect');
+  }
 
-  if (bothPresent(roomId)) notifyBothPresent(roomId);
+  log('WS', `Client connected — room="${roomId}" slot=${slot} ip=${ip}`);
+
+  if (bothPresent(roomId)) {
+    log('WS', `Both peers present in room "${roomId}", signaling peer-joined`);
+    notifyBothPresent(roomId);
+  }
 
   ws.on('message', (raw) => {
     let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
+    try { msg = JSON.parse(raw); } catch {
+      log('WS', `Unparseable message from slot ${slot} in room "${roomId}"`);
+      return;
+    }
 
     // Server-handled: a peer asks for a full, coordinated renegotiation.
     if (msg.type === 'request-restart') {
+      log('WS', `request-restart in room "${roomId}" — bothPresent=${bothPresent(roomId)}`);
       if (bothPresent(roomId) && allowRestart(roomId)) notifyBothPresent(roomId);
       return;
     }
 
-    if (RELAY_TYPES.has(msg.type)) send(getOtherPeer(roomId, slot), msg);
+    if (RELAY_TYPES.has(msg.type)) {
+      if (msg.type !== 'ice-candidate' && msg.type !== 'cursor') {
+        log('WS', `Relay "${msg.type}" room="${roomId}" slot=${slot}→${slot === 0 ? 1 : 0}`);
+      }
+      send(getOtherPeer(roomId, slot), msg);
+    }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     // Only tear down if this socket still owns the slot (it may have been
     // evicted by its own reconnect, in which case the slot is already reused).
     if (!clearPeer(roomId, slot, ws)) return;
+    log('WS', `Client disconnected — room="${roomId}" slot=${slot} code=${code} reason=${reason || '(none)'}`);
     send(getOtherPeer(roomId, slot), { type: 'peer-left' });
     if (isRoomEmpty(roomId)) scheduleDelete(roomId);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`Screenshare running on http://localhost:${PORT}`);
+  const iceServers = buildIceServers();
+  const turnEntries = iceServers.filter(s => String(s.urls).startsWith('turn'));
+  log('START', `Screenshare running — port=${PORT} baseUrl=${BASE_URL}`);
+  log('START', `ICE config: ${iceServers.length} servers total (${turnEntries.length} TURN)`);
+  if (turnEntries.length === 0) {
+    log('WARN', 'No TURN servers configured — clients behind strict NAT may fail to connect');
+  } else {
+    for (const t of turnEntries) {
+      log('START', `  TURN: ${t.urls}  user=${t.username ?? '(none)'}  credential=${t.credential ? '***' : '(none)'}`);
+    }
+  }
 });

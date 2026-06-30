@@ -85,8 +85,7 @@
     });
 
     function doJoin() {
-      const raw  = joinInput.value.trim();
-      const code = raw.replace(/\s+/g, '');
+      const code = joinInput.value.replace(/\s+/g, '').toLowerCase();
       if (!code) { showError('Please enter a room code.'); return; }
       window.location.href = `/${code}`;
     }

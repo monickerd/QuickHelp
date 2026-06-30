@@ -12,7 +12,7 @@ function randomWord() {
 }
 
 function generateRoomId() {
-  return randomWord() + randomWord() + randomWord();
+  return (randomWord() + randomWord() + randomWord()).toLowerCase();
 }
 
 module.exports = { generateRoomId };
