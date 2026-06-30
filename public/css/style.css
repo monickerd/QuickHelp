@@ -240,17 +240,7 @@ input[type="text"]::placeholder { color: var(--muted); }
   font-size: 2rem;
 }
 
-/* ── Cursor overlay ──────────────────────────────────────── */
-#cursor-overlay {
-  position: fixed;
-  width: 24px;
-  height: 24px;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  z-index: 9999;
-  display: none;
-}
-#cursor-overlay svg { display: block; }
+.copyable { cursor: pointer; user-select: none; }
 
 /* ── Control bar ─────────────────────────────────────────── */
 .control-bar {
@@ -346,6 +336,42 @@ input[type="text"]::placeholder { color: var(--muted); }
 .status-overlay.has-actions { pointer-events: auto; }
 .status-overlay h2 { color: var(--text); }
 .status-overlay .room-code { max-width: 400px; width: 100%; pointer-events: auto; }
+
+/* ── Recovery error banner ───────────────────────────────── */
+.error-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+}
+.error-banner-icon { flex-shrink: 0; font-size: 1.1rem; }
+.error-banner-text {
+  flex: 1;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+.error-banner-retry {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  border-radius: 8px;
+}
+
+@media (max-width: 640px) {
+  .error-banner { flex-wrap: wrap; top: 8px; }
+  .error-banner-text { flex-basis: 100%; }
+}
 
 /* ── Chat panel ──────────────────────────────────────────── */
 .chat-panel {

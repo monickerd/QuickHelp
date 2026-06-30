@@ -43,6 +43,15 @@ export class WebRTCPeer {
     this.signaling.send({ type: 'offer', sdp: offer });
   }
 
+  // Re-gather ICE candidates on the existing connection without tearing it
+  // down. Keeps all tracks/transceivers in place — the cheapest recovery from
+  // a network path change. Only the offerer should call this.
+  async restartIce() {
+    const offer = await this._pc.createOffer({ iceRestart: true });
+    await this._pc.setLocalDescription(offer);
+    this.signaling.send({ type: 'offer', sdp: offer });
+  }
+
   // Replace the outgoing video track (null = stop sending video)
   async replaceVideoTrack(track) {
     if (this._videoTransceiver) {

@@ -2,7 +2,7 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { createRoom, getRoom, deleteRoom, claimSlot, setPeer, getOtherPeer, isRoomEmpty } = require('./session');
+const { createRoom, getRoom, deleteRoom, scheduleDelete, claimSlot, setPeer, clearPeer, getOtherPeer, bothPresent, isRoomEmpty, allowRestart } = require('./session');
 
 const PORT   = process.env.PORT || 8383;
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -111,42 +111,57 @@ const RELAY_TYPES = new Set([
   'cursor',
   'share-start', 'share-stop',
   'chat',
+  'session-failed',   // a peer gave up recovering — tell the other side too
 ]);
 
+// Notify both peers that the session is ready to (re)negotiate. The peer in
+// slot 0 is always the offerer — a single deterministic choice avoids offer
+// glare, whether this is a fresh join or a coordinated restart.
+function notifyBothPresent(roomId) {
+  const room = getRoom(roomId);
+  if (!room || !room.peers[0] || !room.peers[1]) return;
+  send(room.peers[0], { type: 'peer-joined', initiateOffer: true });
+  send(room.peers[1], { type: 'peer-joined', initiateOffer: false });
+}
+
 wss.on('connection', (ws, req) => {
-  const url    = new URL(req.url, 'http://localhost');
-  const roomId = url.searchParams.get('room');
+  const url      = new URL(req.url, 'http://localhost');
+  const roomId   = url.searchParams.get('room');
+  const clientId = url.searchParams.get('id') || null;
   if (!roomId) { ws.close(1008, 'Missing room'); return; }
 
   const room = getRoom(roomId);
   if (!room) { ws.close(1008, 'Room not found'); return; }
 
-  const slot = claimSlot(roomId);
+  const { slot, evict } = claimSlot(roomId, clientId);
   if (slot === -1) { ws.close(1008, 'Room is full'); return; }
 
-  setPeer(roomId, slot, ws);
-  const other = getOtherPeer(roomId, slot);
+  // Install the new socket first, then evict any predecessor. clearPeer() is
+  // guarded so the evicted socket's close handler won't wipe this new slot.
+  setPeer(roomId, slot, ws, clientId);
+  if (evict && evict !== ws) evict.close(1012, 'Replaced by reconnect');
 
-  if (other) {
-    // Both peers are now present.
-    // The one who was waiting first (other) creates the offer — they've had time
-    // to set up their page and are ready to initiate.
-    send(other, { type: 'peer-joined', initiateOffer: true });
-    send(ws,    { type: 'peer-joined', initiateOffer: false });
-  }
+  if (bothPresent(roomId)) notifyBothPresent(roomId);
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+
+    // Server-handled: a peer asks for a full, coordinated renegotiation.
+    if (msg.type === 'request-restart') {
+      if (bothPresent(roomId) && allowRestart(roomId)) notifyBothPresent(roomId);
+      return;
+    }
+
     if (RELAY_TYPES.has(msg.type)) send(getOtherPeer(roomId, slot), msg);
   });
 
   ws.on('close', () => {
-    const currentRoom = getRoom(roomId);
-    if (!currentRoom) return;
-    currentRoom.peers[slot] = null;
+    // Only tear down if this socket still owns the slot (it may have been
+    // evicted by its own reconnect, in which case the slot is already reused).
+    if (!clearPeer(roomId, slot, ws)) return;
     send(getOtherPeer(roomId, slot), { type: 'peer-left' });
-    if (isRoomEmpty(roomId)) deleteRoom(roomId);
+    if (isRoomEmpty(roomId)) scheduleDelete(roomId);
   });
 });
 

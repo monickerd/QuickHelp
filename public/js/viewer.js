@@ -1,4 +1,3 @@
-const CURSOR_THROTTLE_MS = 33;   // ~30 fps cursor updates
 const TAP_MAX_MOVE_PX    = 12;   // max finger travel to count as a tap
 const TAP_MAX_MS         = 300;  // max duration to count as a tap
 const DOUBLE_TAP_MAX_MS  = 400;  // window between taps for double-tap
@@ -19,11 +18,11 @@ export class Viewer {
 
     // Per-touch: id → { startX, startY, curX, curY, prevX, prevY }
     this._touches   = new Map();
-    this._peakCount = 0;     // max simultaneous fingers this gesture
-    this._gestureMs = 0;     // timestamp gesture started
-    this._lastTapMs = 0;     // for double-tap window
-    this._pinchDist = 0;     // last measured pinch distance
-    this._pinchMidX = 0;     // last pinch midpoint (viewport coords)
+    this._peakCount = 0;
+    this._gestureMs = 0;
+    this._lastTapMs = 0;
+    this._pinchDist = 0;
+    this._pinchMidX = 0;
     this._pinchMidY = 0;
 
     // Optional callback: (zoom: number) => void
@@ -41,7 +40,6 @@ export class Viewer {
     zoomEl.appendChild(this._video);
     this._zoomEl = zoomEl;
 
-    container.addEventListener('mousemove',   this._onMouseMove.bind(this));
     container.addEventListener('touchstart',  this._onTouchStart.bind(this),  { passive: true });
     container.addEventListener('touchmove',   this._onTouchMove.bind(this),   { passive: true });
     container.addEventListener('touchend',    this._onTouchEnd.bind(this),    { passive: true });
@@ -53,15 +51,6 @@ export class Viewer {
     this._panX = 0;
     this._panY = 0;
     this._applyTransform();
-  }
-
-  // ── Mouse ─────────────────────────────────────────────────────────────────
-
-  _onMouseMove(e) {
-    const now = performance.now();
-    if (now - this._lastSend < CURSOR_THROTTLE_MS) return;
-    this._lastSend = now;
-    this._trySendCursor(e.clientX, e.clientY);
   }
 
   // ── Touch ─────────────────────────────────────────────────────────────────
@@ -81,12 +70,6 @@ export class Viewer {
     }
 
     this._peakCount = Math.max(this._peakCount, this._touches.size);
-
-    // Send cursor at initial touch-down (single finger, not zoomed)
-    if (this._touches.size === 1 && this._zoom === 1) {
-      const t = e.changedTouches[0];
-      this._trySendCursor(t.clientX, t.clientY);
-    }
   }
 
   _onTouchMove(e) {
@@ -146,17 +129,9 @@ export class Viewer {
 
   _handleSingleMove(t) {
     if (this._zoom > 1) {
-      // Pan around the zoomed view
       this._panX += t.curX - t.prevX;
       this._panY += t.curY - t.prevY;
       this._applyTransform();
-    } else {
-      // Send cursor position
-      const now = performance.now();
-      if (now - this._lastSend >= CURSOR_THROTTLE_MS) {
-        this._lastSend = now;
-        this._trySendCursor(t.curX, t.curY);
-      }
     }
   }
 
@@ -213,41 +188,4 @@ export class Viewer {
     this.onZoomChange?.(this._zoom);
   }
 
-  // ── Shared ────────────────────────────────────────────────────────────────
-
-  _trySendCursor(clientX, clientY) {
-    const rect = this._video.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const coords = this._mapToVideoNorm(clientX, clientY, rect);
-    if (coords) this._peer.signaling.send({ type: 'cursor', x: coords.x, y: coords.y });
-  }
-
-  // Returns {x, y} in 0..1 relative to the video content, accounting for
-  // object-fit:contain letterboxing. Returns null if the point is in the bars.
-  // getBoundingClientRect() already includes the zoom transform, so this
-  // naturally returns correct coordinates regardless of zoom level.
-  _mapToVideoNorm(clientX, clientY, rect) {
-    const videoAR     = (this._video.videoWidth  || 16) / (this._video.videoHeight || 9);
-    const containerAR = rect.width / rect.height;
-
-    let contentW, contentH, offsetX, offsetY;
-    if (videoAR > containerAR) {
-      contentW = rect.width;
-      contentH = rect.width / videoAR;
-      offsetX  = 0;
-      offsetY  = (rect.height - contentH) / 2;
-    } else {
-      contentH = rect.height;
-      contentW = rect.height * videoAR;
-      offsetX  = (rect.width - contentW) / 2;
-      offsetY  = 0;
-    }
-
-    const localX = clientX - rect.left - offsetX;
-    const localY = clientY - rect.top  - offsetY;
-
-    if (localX < 0 || localY < 0 || localX > contentW || localY > contentH) return null;
-
-    return { x: localX / contentW, y: localY / contentH };
-  }
 }

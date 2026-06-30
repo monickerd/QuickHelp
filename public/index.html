@@ -43,10 +43,6 @@
         <p class="text-muted mt-8" id="join-error" style="color:var(--danger);display:none;"></p>
       </div>
 
-      <!-- Creating spinner -->
-      <div id="creating-state" class="hidden mt-24 text-center">
-        <p class="text-muted">Creating room…</p>
-      </div>
     </div>
   </div>
 
@@ -59,20 +55,19 @@
     const joinForm     = document.getElementById('join-form');
     const joinInput    = document.getElementById('join-input');
     const joinError    = document.getElementById('join-error');
-    const creatingState= document.getElementById('creating-state');
+
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) btnCreate.disabled = false;
+    });
 
     btnCreate.addEventListener('click', async () => {
       btnCreate.disabled = true;
-      mainActions.classList.add('hidden');
-      creatingState.classList.remove('hidden');
       try {
         const res  = await fetch('/api/rooms', { method: 'POST' });
         const { roomId } = await res.json();
         window.location.href = `/${roomId}`;
       } catch {
         btnCreate.disabled = false;
-        mainActions.classList.remove('hidden');
-        creatingState.classList.add('hidden');
       }
     });
 

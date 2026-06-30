@@ -7,13 +7,6 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <!-- Ghost cursor (shown when remote side is pointing at local content) -->
-  <div id="cursor-overlay">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-      <path d="M4 2l16 10-7 1-4 7L4 2z" fill="#4f8ef7" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
-    </svg>
-  </div>
-
   <div class="viewer-layout">
 
     <!-- Top bar -->
@@ -24,26 +17,32 @@
         <span id="status-text">Waiting…</span>
       </span>
       <div class="topbar-right">
-        <div id="link-box" class="room-code" style="max-width:320px;">
-          <span style="color:var(--muted);font-size:0.8rem;flex-shrink:0">Share:</span>
-          <a id="room-link" href="#" target="_blank" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></a>
-          <button class="btn btn-secondary" id="btn-copy" style="padding:6px 12px;font-size:0.8rem;flex-shrink:0">Copy</button>
+        <div id="link-box" class="room-code copyable" style="max-width:320px;" title="Click to copy">
+          <span style="color:var(--muted);font-size:0.8rem;flex-shrink:0">Copy:</span>
+          <span id="room-link" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
         </div>
       </div>
     </div>
 
     <!-- Video viewport -->
     <div class="viewer-body" id="viewer-body">
+      <!-- Recovery error banner -->
+      <div class="error-banner hidden" id="error-banner">
+        <span class="error-banner-icon">⚠️</span>
+        <span class="error-banner-text" id="error-banner-text"></span>
+        <button class="btn btn-secondary error-banner-retry" id="error-banner-retry">Retry</button>
+      </div>
+
       <!-- Status overlay -->
       <div class="status-overlay" id="status-overlay">
         <div class="share-icon">📺</div>
         <h2 id="overlay-title">Waiting for someone to join</h2>
         <p id="overlay-sub">Share this link to start the session:</p>
-        <div class="room-code" id="overlay-link-box" style="max-width:400px;">
-          <a id="room-link-big" href="#" style="word-break:break-all"></a>
+        <div class="room-code copyable" id="overlay-link-box" style="max-width:400px;" title="Click to copy">
+          <span id="room-link-big" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
         </div>
-        <p class="text-muted" id="overlay-code-line" style="margin-top:4px;">
-          Room code: <strong id="room-code-text" style="color:var(--text)"></strong>
+        <p class="text-muted" id="overlay-code-line" style="margin-top:4px;pointer-events:auto;">
+          Room code: <strong id="room-code-text" class="copyable" style="color:var(--text);" title="Click to copy"></strong>
         </p>
       </div>
 
@@ -119,10 +118,10 @@
     import { Signaling }  from '/js/signaling.js';
     import { WebRTCPeer } from '/js/webrtc.js';
     import { Capture }    from '/js/capture.js';
-    import { Cursor }     from '/js/cursor.js';
     import { Viewer }     from '/js/viewer.js';
     import { Adaptive }   from '/js/adaptive.js';
     import { Chat }       from '/js/chat.js';
+    import { Recovery }   from '/js/recovery.js';
 
     const { iceServers } = await fetch('/api/config').then(r => r.json());
     const roomId  = location.pathname.slice(1);
@@ -146,20 +145,30 @@
     const btnFit         = document.getElementById('btn-fit');
     const btnFullscreen  = document.getElementById('btn-fullscreen');
     const btnEnd         = document.getElementById('btn-end');
-    const btnCopy        = document.getElementById('btn-copy');
+
+    const errorBanner    = document.getElementById('error-banner');
+    const errorBannerText= document.getElementById('error-banner-text');
+    const btnRetry       = document.getElementById('error-banner-retry');
 
     // ── Room link ─────────────────────────────────────────────────────────────
-    document.getElementById('room-link').href        = roomUrl;
-    document.getElementById('room-link').textContent  = roomUrl;
-    document.getElementById('room-link-big').href    = roomUrl;
+    document.getElementById('room-link').textContent     = roomUrl;
     document.getElementById('room-link-big').textContent = roomUrl;
     document.getElementById('room-code-text').textContent = roomId;
 
-    btnCopy.addEventListener('click', async () => {
-      await navigator.clipboard.writeText(roomUrl);
-      btnCopy.textContent = 'Copied!';
-      setTimeout(() => { btnCopy.textContent = 'Copy'; }, 2000);
-    });
+    function makeCopyable(clickId, text, feedbackId) {
+      const clickEl    = document.getElementById(clickId);
+      const feedbackEl = feedbackId ? document.getElementById(feedbackId) : clickEl;
+      clickEl.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(text);
+        const original = feedbackEl.textContent;
+        feedbackEl.textContent = 'Copied!';
+        setTimeout(() => { feedbackEl.textContent = original; }, 2000);
+      });
+    }
+
+    makeCopyable('link-box',         roomUrl, 'room-link');
+    makeCopyable('overlay-link-box', roomUrl, 'room-link-big');
+    makeCopyable('room-code-text',   roomId);
 
     // ── State ─────────────────────────────────────────────────────────────────
     let isMicMuted    = false;
@@ -171,10 +180,16 @@
     const capture   = new Capture();
     const signaling = new Signaling(roomId);
     const peer      = new WebRTCPeer(signaling, iceServers);
-    const cursor    = new Cursor(document.getElementById('cursor-overlay'));
     const viewer    = new Viewer(remoteVideo, peer);
     const adaptive  = new Adaptive(peer);
     const chat      = new Chat();
+    const recovery  = new Recovery(peer, {
+      onStatus:    (text) => setStatus('connecting', text),
+      onError:     (reason, message) => showError(message),
+      onClearError: ()    => hideError(),
+      requestRestart: ()  => signaling.send({ type: 'request-restart' }),
+      notifyPeerFailed: (reason) => signaling.send({ type: 'session-failed', reason }),
+    });
 
     btnChat.appendChild(chat.badge);
 
@@ -186,6 +201,36 @@
       statusPill.className  = `status ${state}`;
       statusText.textContent = text;
     }
+
+    function showError(message) {
+      errorBannerText.textContent = message;
+      errorBanner.classList.remove('hidden');
+      setStatus('disconnected', 'Connection problem');
+      screen.orientation?.unlock?.();
+    }
+
+    function hideError() {
+      errorBanner.classList.add('hidden');
+    }
+
+    // Re-assert everything this side is sending onto the current connection.
+    // Runs on every (re)connect, so a fresh join and a reconnect take the exact
+    // same path: on a fresh join nothing is active yet (no-op); on a reconnect
+    // the mic and any in-progress screen share are re-attached automatically.
+    async function reapplyLocalState() {
+      const micTrack = await micPromise;
+      if (micTrack) await peer.replaceAudioTrack(micTrack);
+
+      if (isSharing) {
+        const track = capture.screenStream?.getVideoTracks()[0];
+        if (track) {
+          await peer.replaceVideoTrack(track);
+          signaling.send({ type: 'share-start' });
+        }
+      }
+    }
+
+    btnRetry.addEventListener('click', () => recovery.manualRetry());
 
     function updateOverlay() {
       remoteVideo.style.display = remoteSharing ? 'block' : 'none';
@@ -217,6 +262,8 @@
       remoteAudio.srcObject = null;
       peer.reset();    // always start with a fresh RTCPeerConnection
       adaptive.stop(); // will restart once tracks arrive
+      recovery.setRole(initiateOffer); // offerer drives ICE restarts
+      recovery.noteRemoteSharing(false);
       setStatus('connecting', 'Connecting…');
       updateOverlay();
 
@@ -236,47 +283,34 @@
       setStatus('disconnected', 'Other person left');
       updateOverlay();
       adaptive.stop();
+      recovery.noteRemoteSharing(false);
       screen.orientation?.unlock?.();
     };
 
-    // Convert normalised video-content coords to viewport pixel coords.
-    // When this peer is sharing a full-screen capture (displaySurface === 'monitor'),
-    // account for the browser chrome height and window position on screen so the
-    // cursor overlay lands on the correct pixel rather than drifting toward the top.
-    function normToViewportPx(x, y) {
-      if (isSharing) {
-        const track    = capture.screenStream?.getVideoTracks()[0];
-        const settings = track?.getSettings() ?? {};
-        if (settings.displaySurface === 'monitor') {
-          const chromeH = window.outerHeight - window.innerHeight;
-          return {
-            px: x * window.screen.width  - window.screenX,
-            py: y * window.screen.height - window.screenY - chromeH,
-          };
-        }
-      }
-      return { px: x * window.innerWidth, py: y * window.innerHeight };
-    }
+    // Websocket-level connectivity (distinct from the WebRTC peer connection).
+    signaling.onReconnecting = () => recovery.noteSignalingDown();
+    signaling.onReconnected  = () => recovery.noteSignalingUp();
 
     signaling.onMessage(async (msg) => {
-      if (msg.type === 'cursor') {
-        const { px, py } = normToViewportPx(msg.x, msg.y);
-        cursor.updatePx(px, py);
-      }
       if (msg.type === 'share-start') {
         if (isSharing) await stopSharing(); // one share at a time
         remoteSharing = true;
+        recovery.noteRemoteSharing(true);   // arm the no-frames watchdog
         updateOverlay();
         screen.orientation?.lock?.('landscape').catch(() => {});
       }
       if (msg.type === 'share-stop') {
         remoteSharing = false;
+        recovery.noteRemoteSharing(false);
         remoteVideo.srcObject = null;
         updateOverlay();
         screen.orientation?.unlock?.();
       }
       if (msg.type === 'chat') {
         chat.addMessage(msg.text, false);
+      }
+      if (msg.type === 'session-failed') {
+        recovery.handleRemoteFailure(msg.reason);
       }
     });
 
@@ -291,17 +325,16 @@
     };
 
     peer.onConnectionStateChange = async (state) => {
+      recovery.handleConnectionState(state);
       if (state === 'connected') {
         peerConnected = true;
         setStatus('connected', 'Connected');
         updateOverlay();
-        // Add mic now that the connection is established
-        const micTrack = await micPromise;
-        if (micTrack) await peer.replaceAudioTrack(micTrack);
-      } else if (state === 'failed' || state === 'disconnected') {
-        setStatus('disconnected', 'Connection lost');
-        screen.orientation?.unlock?.();
+        // Re-attach mic + any in-progress screen share onto the live connection
+        await reapplyLocalState();
       }
+      // failed/disconnected are handled by the recovery ladder, which updates
+      // status itself and surfaces an error only once recovery is exhausted.
     };
 
     // ── Viewer (pinch-zoom + cursor sending when viewing remote) ──────────────
@@ -382,12 +415,14 @@
     btnEnd.addEventListener('click', async () => {
       if (isSharing) await stopSharing();
       capture.stopAll();
+      recovery.destroy();
       screen.orientation?.unlock?.();
       signaling.close();
       window.location.href = '/';
     });
 
     window.addEventListener('beforeunload', () => {
+      recovery.destroy();
       signaling.close();
       capture.stopAll();
     });
